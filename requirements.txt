@@ -1,0 +1,5 @@
+# Computor v2 - Python Requirements
+# This project uses only Python standard library modules
+# No external dependencies required
+
+# Minimum Python version: 3.6+
