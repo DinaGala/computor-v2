@@ -66,13 +66,15 @@ class Rational:
         raise TypeError(f"Cannot divide Rational and {type(other)}")
     
     def __pow__(self, other):
-        if isinstance(other, (Rational, int)):
-            exp = other.value if isinstance(other, Rational) else other
+        if isinstance(other, Rational):
+            exp = other.value
             if exp.denominator == 1:
                 return Rational(self.value ** int(exp))
             else:
                 # For fractional powers, convert to float
                 return Rational(float(self.value) ** float(exp))
+        elif isinstance(other, int):
+            return Rational(self.value ** other)
         raise TypeError(f"Cannot exponentiate Rational with {type(other)}")
     
     def __neg__(self):

@@ -188,7 +188,8 @@ class EquationSolver:
                 if len(left) == 1 and 1 in left and left[1].value == 1:
                     # It's x^n
                     if len(right) == 1 and 0 in right:
-                        power = int(right[0].value)
+                        coeff = right[0]
+                        power = int(coeff.value)
                         return {power: Rational(1)}
                 raise ValueError("Only simple polynomial forms are supported")
             
