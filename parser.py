@@ -22,17 +22,21 @@ class Token:
 
 class Lexer:
     """Tokenizes mathematical expressions."""
-    
+
     TOKEN_PATTERNS = [
         ('NUMBER', r'\d+\.?\d*'),
-        ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
+    # Identifiers: letters only (case-insensitive). Disallow names containing digits/underscores.
+    ('IDENTIFIER', r'[A-Za-z]+'),
         ('ASSIGN', r'='),
+        ('MODULO', r'%'),
         ('QUESTION', r'\?'),
         ('PLUS', r'\+'),
         ('MINUS', r'-'),
+        # Match matrix-multiplication operator '**' before single '*'
+        ('MATMUL', r'\*\*'),
         ('MULTIPLY', r'\*'),
         ('DIVIDE', r'/'),
-        ('POWER', r'\^|\*\*'),
+        ('POWER', r'\^'),
         ('LPAREN', r'\('),
         ('RPAREN', r'\)'),
         ('LBRACKET', r'\['),
@@ -107,22 +111,42 @@ class Parser:
         """Parse the token stream."""
         if not self.tokens:
             return None
-        
-        # Check if it's an assignment or equation
-        if self.is_assignment():
-            return self.parse_assignment()
-        elif self.is_equation():
-            return self.parse_equation()
+
+        # Check if it's an equation or assignment. Prefer equation when a '?' is present
+        # so inputs like `funA(x) = y ?` are treated as equations rather than assignments.
+        if self.is_equation():
+            result = self.parse_equation()
+        elif self.is_assignment():
+            result = self.parse_assignment()
         else:
-            return self.parse_expression()
+            result = self.parse_expression()
+
+        # After parsing a complete statement, there should be no leftover tokens.
+        if self.current_token() is not None:
+            tok = self.current_token()
+            raise SyntaxError(f"Unexpected token after expression: '{tok.value}' at position {tok.pos}")
+
+        return result
     
     def is_assignment(self) -> bool:
         """Check if this is an assignment statement."""
-        # Look for pattern: IDENTIFIER = ...
-        if len(self.tokens) >= 2:
-            return (self.tokens[0].type == 'IDENTIFIER' and 
-                    self.tokens[1].type == 'ASSIGN' and
-                    self.tokens[1].value == '=')
+        # Two forms:
+        # 1) IDENTIFIER = ...
+        # 2) IDENTIFIER ( IDENTIFIER ) = ...  (function assignment)
+        if not self.tokens:
+            return False
+
+        if len(self.tokens) >= 2 and self.tokens[0].type == 'IDENTIFIER' and self.tokens[1].type == 'ASSIGN':
+            return True
+
+        # function assignment detection
+        if len(self.tokens) >= 5:
+            return (self.tokens[0].type == 'IDENTIFIER' and
+                    self.tokens[1].type == 'LPAREN' and
+                    self.tokens[2].type == 'IDENTIFIER' and
+                    self.tokens[3].type == 'RPAREN' and
+                    self.tokens[4].type == 'ASSIGN')
+
         return False
     
     def is_equation(self) -> bool:
@@ -145,15 +169,38 @@ class Parser:
     def parse_assignment(self):
         """Parse variable assignment."""
         identifier = self.consume('IDENTIFIER')
+        # Validate identifier: letters only and not 'i'
+        name = identifier.value
+        if name.lower() == 'i':
+            raise SyntaxError("'i' is reserved for the imaginary unit and cannot be used as a variable or function name")
+
+
+        # function assignment: name(arg) = expr
+        if self.current_token() and self.current_token().type == 'LPAREN':
+            self.consume('LPAREN')
+            arg_token = self.consume('IDENTIFIER')
+            # Arg name must be letters and not 'i'
+            if arg_token.value.lower() == 'i':
+                raise SyntaxError("'i' is reserved for the imaginary unit and cannot be used as a variable or function argument")
+            self.consume('RPAREN')
+            self.consume('ASSIGN')
+            expression = self.parse_expression()
+            return ('fun_assign', identifier.value, arg_token.value, expression)
+
+        # normal variable assignment
         self.consume('ASSIGN')
         expression = self.parse_expression()
         return ('assign', identifier.value, expression)
     
     def parse_equation(self):
         """Parse equation to solve."""
-        # Expression = Expression ?
+        # Expression = Expression? (right side may be omitted before '?')
         left = self.parse_expression()
         self.consume('ASSIGN')
+        # If we immediately see QUESTION, treat as evaluation request of left
+        if self.current_token() and self.current_token().type == 'QUESTION':
+            self.consume('QUESTION')
+            return ('equation', left, None)
         right = self.parse_expression()
         self.consume('QUESTION')
         return ('equation', left, right)
@@ -164,20 +211,39 @@ class Parser:
         
         while self.current_token() and self.current_token().type in ('PLUS', 'MINUS'):
             op = self.consume()
+            # Disallow consecutive + or - sequences like '+-' or '--'
+            if self.current_token() and self.current_token().type in ('PLUS', 'MINUS'):
+                raise SyntaxError("Consecutive '+' or '-' operators are not allowed")
             right = self.parse_term()
             left = ('binop', op.value, left, right)
-        
+
         return left
     
     def parse_term(self):
         """Parse a term (handles multiplication and division)."""
         left = self.parse_power()
-        
-        while self.current_token() and self.current_token().type in ('MULTIPLY', 'DIVIDE'):
-            op = self.consume()
-            right = self.parse_power()
-            left = ('binop', op.value, left, right)
-        
+
+        # Implicit multiplication support: when a factor is followed directly by
+        # another factor (NUMBER, IDENTIFIER, LPAREN, LBRACKET) treat it as '*'.
+        implicit_starters = ('NUMBER', 'IDENTIFIER', 'LPAREN', 'LBRACKET')
+
+        while self.current_token():
+            tok = self.current_token()
+            if tok.type in ('MULTIPLY', 'DIVIDE', 'MODULO', 'MATMUL'):
+                op = self.consume()
+                right = self.parse_power()
+                # Use '**' token for matrix multiplication or '*' for element-wise
+                if op.type == 'MATMUL':
+                    left = ('binop', '**', left, right)
+                else:
+                    left = ('binop', op.value, left, right)
+            elif tok.type in implicit_starters:
+                # implicit multiplication
+                right = self.parse_power()
+                left = ('binop', '*', left, right)
+            else:
+                break
+
         return left
     
     def parse_power(self):
@@ -222,11 +288,21 @@ class Parser:
         
         # Identifier (variable or 'i' for imaginary)
         if token.type == 'IDENTIFIER':
+            # Lookahead: could be function call or variable
+            ident = token.value
             self.consume()
-            # Check if it's 'i' (imaginary unit)
-            if token.value == 'i':
+            if ident == 'i':
                 return ('imaginary',)
-            return ('variable', token.value)
+
+            if self.current_token() and self.current_token().type == 'LPAREN':
+                # function call: IDENTIFIER ( expression )
+                self.consume('LPAREN')
+                # allow empty arg? not supported
+                arg_expr = self.parse_expression()
+                self.consume('RPAREN')
+                return ('call', ident, arg_expr)
+
+            return ('variable', ident)
         
         raise SyntaxError(f"Unexpected token: {token.type}")
     
@@ -251,8 +327,12 @@ class Parser:
                 self.consume('RBRACKET')
                 rows.append(row)
                 
-                if self.current_token() and self.current_token().type == 'COMMA':
-                    self.consume('COMMA')
+                if self.current_token() and self.current_token().type in ('COMMA', 'SEMICOLON'):
+                    # Allow comma or semicolon between nested row brackets
+                    if self.current_token().type == 'COMMA':
+                        self.consume('COMMA')
+                    else:
+                        self.consume('SEMICOLON')
             else:
                 # Flat format with semicolons
                 current_row.append(self.parse_expression())

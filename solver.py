@@ -20,6 +20,12 @@ class EquationSolver:
         Solve an equation of the form left = right.
         Returns a string with the solution.
         """
+        # Inline function calls so equations like f(x) = y ? where f was defined
+        # as a Function(arg, body) are expanded before solving.
+        left_ast = self._inline_calls(left_ast)
+        if right_ast is not None:
+            right_ast = self._inline_calls(right_ast)
+
         # Try to simplify to standard form: ax^2 + bx + c = 0
         # For now, we'll handle simple cases
         
@@ -110,6 +116,68 @@ class EquationSolver:
             if var:
                 return var
         return None
+
+    def _inline_calls(self, ast):
+        """Recursively replace function calls with their body ASTs (substituting the argument).
+
+        If ast is None, return None. For ('call', name, arg_ast) where `name` is a
+        Function stored in evaluator.variables, substitute the function's body
+        replacing occurrences of its argument name with arg_ast. Non-function
+        calls or missing functions are left as-is.
+        """
+        if ast is None:
+            return None
+        if not isinstance(ast, tuple):
+            return ast
+
+        node_type = ast[0]
+        if node_type == 'call':
+            func_name = ast[1]
+            arg_ast = ast[2]
+            func = self.evaluator.get_variable(func_name)
+            from types_system import Function
+            if isinstance(func, Function):
+                # perform substitution: replace func.arg_name in func.body_ast with arg_ast
+                substituted = self._substitute(func.body_ast, func.arg_name, arg_ast)
+                # inline recursively in case body contains calls
+                return self._inline_calls(substituted)
+            else:
+                # Not a function: leave call as-is but inline inside argument
+                return ('call', func_name, self._inline_calls(arg_ast))
+
+        # Recursively process children
+        if node_type in ('binop',):
+            return (node_type, ast[1], self._inline_calls(ast[2]), self._inline_calls(ast[3]))
+        if node_type == 'unary':
+            return ('unary', ast[1], self._inline_calls(ast[2]))
+        if node_type == 'matrix':
+            return ('matrix', [[self._inline_calls(e) for e in row] for row in ast[1]])
+        # other nodes unchanged
+        return ast
+
+    def _substitute(self, ast, var_name, replacement):
+        """Return AST with variable var_name replaced by replacement AST."""
+        if ast is None:
+            return None
+        if not isinstance(ast, tuple):
+            return ast
+
+        node_type = ast[0]
+        if node_type == 'variable' and ast[1] == var_name:
+            return replacement
+        if node_type == 'variable':
+            return ast
+        if node_type == 'number' or node_type == 'imaginary':
+            return ast
+        if node_type == 'unary':
+            return ('unary', ast[1], self._substitute(ast[2], var_name, replacement))
+        if node_type == 'binop':
+            return ('binop', ast[1], self._substitute(ast[2], var_name, replacement), self._substitute(ast[3], var_name, replacement))
+        if node_type == 'call':
+            return ('call', ast[1], self._substitute(ast[2], var_name, replacement))
+        if node_type == 'matrix':
+            return ('matrix', [[self._substitute(e, var_name, replacement) for e in row] for row in ast[1]])
+        return ast
     
     def _find_variable_recursive(self, ast) -> str:
         """Recursively find variable in AST."""

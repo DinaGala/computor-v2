@@ -14,6 +14,8 @@ class Rational:
     def __init__(self, value):
         if isinstance(value, Fraction):
             self.value = value
+        elif isinstance(value, Rational):
+            self.value = value.value
         elif isinstance(value, (int, float)):
             self.value = Fraction(value).limit_denominator()
         elif isinstance(value, str):
@@ -92,6 +94,19 @@ class Rational:
         if isinstance(other, Rational):
             return self.value == other.value
         return False
+
+    def __mod__(self, other):
+        """Modulo operation for rationals."""
+        from fractions import Fraction
+        if isinstance(other, Rational):
+            if other.value == 0:
+                raise ZeroDivisionError("Modulo by zero")
+            return Rational(self.value % other.value)
+        elif isinstance(other, (int, float)):
+            if other == 0:
+                raise ZeroDivisionError("Modulo by zero")
+            return Rational(self.value % Fraction(other))
+        raise TypeError(f"Cannot modulo Rational and {type(other)}")
 
 
 class Complex:
@@ -237,18 +252,15 @@ class Matrix:
     
     def __mul__(self, other):
         if isinstance(other, Matrix):
-            # Matrix multiplication
-            if self.cols != other.rows:
-                raise ValueError("Matrix dimensions incompatible for multiplication")
-            
+            # Element-wise multiplication: dimensions must match
+            if self.rows != other.rows or self.cols != other.cols:
+                raise ValueError("Matrix dimensions must match for element-wise multiplication")
+
             result = []
             for i in range(self.rows):
                 row = []
-                for j in range(other.cols):
-                    sum_val = Rational(0)
-                    for k in range(self.cols):
-                        sum_val = sum_val + (self.data[i][k] * other.data[k][j])
-                    row.append(sum_val)
+                for j in range(self.cols):
+                    row.append(self.data[i][j] * other.data[i][j])
                 result.append(row)
             return Matrix(result)
         elif isinstance(other, (Rational, int, float)):
@@ -262,13 +274,32 @@ class Matrix:
                 result.append(row)
             return Matrix(result)
         raise TypeError(f"Cannot multiply Matrix and {type(other)}")
+
+    def matmul(self, other):
+        """Matrix multiplication (dot product) operator for Matrix objects."""
+        if not isinstance(other, Matrix):
+            raise TypeError("Matrix multiplication requires another Matrix")
+        if self.cols != other.rows:
+            raise ValueError("Matrix dimensions incompatible for multiplication")
+
+        result = []
+        for i in range(self.rows):
+            row = []
+            for j in range(other.cols):
+                sum_val = Rational(0)
+                for k in range(self.cols):
+                    sum_val = sum_val + (self.data[i][k] * other.data[k][j])
+                row.append(sum_val)
+            result.append(row)
+        return Matrix(result)
     
     def __str__(self):
+        # Render each row on its own line for readability, without outer brackets
         lines = []
         for row in self.data:
             elements = [str(elem) for elem in row]
             lines.append("[ " + " , ".join(elements) + " ]")
-        return "[ " + " ; ".join(lines) + " ]"
+        return "\n".join(lines)
     
     def __repr__(self):
         return f"Matrix({self.data})"
@@ -283,3 +314,17 @@ class Matrix:
                 if self.data[i][j] != other.data[i][j]:
                     return False
         return True
+
+
+class Function:
+    """Simple function container for single-variable functions.
+
+    Stores the argument name and the AST for the function body.
+    """
+    def __init__(self, arg_name: str, body_ast, name: str = None):
+        self.arg_name = arg_name
+        self.body_ast = body_ast
+        self.name = name
+
+    def __repr__(self):
+        return f"Function(name={self.name}, arg={self.arg_name}, body={self.body_ast})"

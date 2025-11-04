@@ -128,6 +128,125 @@ def test_mixed_operations():
     print("✓ Mixed operations passed")
 
 
+def test_parser_errors():
+    """Test that malformed inputs are rejected by the parser."""
+    print("Testing parser error cases...")
+    interp = Interpreter()
+
+    bad_inputs = [
+        "varA = 2 + 4 *2 - 5 %4 + 2(4 + 5))",  # extra closing parenthesis
+        "0=",  # invalid assignment LHS
+        "2 + 4 *2 - 5 %4 + 2(4 +- 5)",  # consecutive +-
+        "2 + 4 *2 - 5 %4 + 2(4 -- 5)",  # consecutive --
+    ]
+
+    for s in bad_inputs:
+        try:
+            _ = interp.execute(s)
+            assert False, f"Expected SyntaxError for input: {s}"
+        except SyntaxError:
+            pass
+
+    print("✓ Parser error cases passed")
+
+
+def test_reassignment_and_functions():
+    """Test reassignment, function definitions, and function calls with variable references."""
+    print("Testing reassignment and function calls...")
+    interp = Interpreter()
+
+    # varA = 2 + 4 *2 - 5 %4 + 2 * (4 + 5)
+    res = interp.execute("varA = 2 + 4 *2 - 5 %4 + 2 * (4 + 5)")
+    assert res == "27", f"varA expected 27, got {res}"
+
+    res = interp.execute("varB = 2 * varA - 5 %4")
+    assert res == "53", f"varB expected 53, got {res}"
+
+    res = interp.execute("funA(x) = varA + varB * 4 - 1 / 2 + x")
+    # function display may show decimal or fraction; accept either
+    assert res in ("238.5 + x", "477/2 + x"), f"funA display unexpected: {res}"
+
+    res = interp.execute("varC = 2 * varA - varB")
+    assert res == "1", f"varC expected 1, got {res}"
+
+    res = interp.execute("varD = funA(varC)")
+    # function call result: accept decimal or fraction equivalent
+    assert res in ("239.5", "479/2"), f"varD expected 239.5 or 479/2, got {res}"
+
+    print("✓ Reassignment and functions passed")
+
+
+def test_sqrt_polynomial_solution():
+    """Test solving polynomial equalities with function calls (square roots of polynomials)."""
+    print("Testing polynomial root solving via function call...")
+    interp = Interpreter()
+
+    interp.execute("funA(x) = x^2 + 2*x + 1")
+    interp.execute("y = 0")
+    res = interp.execute("funA(x) = y ?")
+    # Expect -1 to be in the solver output
+    assert "-1" in res, f"Expected -1 in solver output, got: {res}"
+
+    print("✓ Polynomial root solving passed")
+
+
+def test_identifier_rules():
+    """Identifiers must be letters-only, case-insensitive, and 'i' forbidden."""
+    print("Testing identifier rules...")
+    interp = Interpreter()
+
+    # Disallow digits/underscores in names: lexer will tokenize 'a1' as IDENTIFIER 'a' then NUMBER '1'
+    try:
+        interp.execute("a1 = 5")
+        assert False, "Expected SyntaxError for identifier with digits"
+    except SyntaxError:
+        pass
+
+    # 'i' reserved
+    try:
+        interp.execute("i = 5")
+        assert False, "Expected SyntaxError or NameError when assigning to 'i'"
+    except (SyntaxError, NameError):
+        pass
+
+    # Case-insensitive: VAR and var are the same
+    interp.execute("Var = 10")
+    assert interp.execute("var") == "10"
+
+    print("✓ Identifier rules passed")
+
+
+def test_imaginary_workflow():
+    """Test imaginary number assignments and formatting."""
+    print("Testing imaginary workflows...")
+    interp = Interpreter()
+
+    res = interp.execute("varA = 2*i + 3")
+    assert res == "3 + 2i", f"Expected '3 + 2i', got {res}"
+
+    res = interp.execute("varB = -4i - 4")
+    assert res == "-4 - 4i", f"Expected '-4 - 4i', got {res}"
+
+    print("✓ Imaginary workflows passed")
+
+
+def test_matrix_semicolon_and_single_row():
+    """Test matrix input with semicolon row separator and single-row matrix formatting."""
+    print("Testing semicolon matrix and single-row formatting...")
+    interp = Interpreter()
+
+    res = interp.execute("varA = [[2,3];[4,3]]")
+    # Expect two lines representing rows
+    expected = "[ 2 , 3 ]\n[ 4 , 3 ]"
+    assert res == expected, f"Unexpected matrix format: {res}"
+
+    res = interp.execute("varB = [[3,4]]")
+    expected2 = "[ 3 , 4 ]"
+    assert res == expected2, f"Unexpected single-row matrix format: {res}"
+
+    print("✓ Matrix semicolon and single-row formatting passed")
+
+
 def main():
     """Run all tests."""
     print("Running computor v2 tests...\n")
@@ -139,7 +258,11 @@ def main():
         test_variable_assignment()
         test_equation_solving()
         test_mixed_operations()
-        
+        test_parser_errors()
+        test_reassignment_and_functions()
+        test_imaginary_workflow()
+        test_matrix_semicolon_and_single_row()
+
         print("\n✅ All tests passed!")
         return 0
     except AssertionError as e:
