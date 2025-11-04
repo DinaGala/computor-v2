@@ -26,6 +26,60 @@ class Interpreter:
         # Special commands
         if line.lower() == 'vars':
             return self.list_variables()
+
+        # Aliases for listing variables
+        if line.lower() in ('display', 'show'):
+            return self.list_variables()
+
+        # Angle mode command: 'angles' to show mode, or 'angles rad' / 'angles deg' to set
+        if line.lower().startswith('angles'):
+            parts = line.split()
+            if len(parts) == 1:
+                # show current mode
+                return f"angle mode: {self.evaluator.angle_mode}"
+            elif len(parts) == 2:
+                mode = parts[1]
+                try:
+                    self.evaluator.set_angle_mode(mode)
+                    return f"angle mode set to {self.evaluator.angle_mode}"
+                except Exception as e:
+                    raise SyntaxError(str(e))
+            else:
+                raise SyntaxError("Usage: angles [rad|deg]")
+
+        # Plot command: plot <func> <start> <end> [points]
+        if line.lower().startswith('plot '):
+            parts = line.split()
+            if len(parts) < 4:
+                raise SyntaxError("Usage: plot <function> <start> <end> [points]")
+            func_name = parts[1]
+            try:
+                start = float(parts[2])
+                end = float(parts[3])
+            except ValueError:
+                raise SyntaxError("Start and end must be numeric")
+            points = 200
+            if len(parts) >= 5:
+                try:
+                    points = int(parts[4])
+                except ValueError:
+                    raise SyntaxError("points must be an integer")
+
+            # Lookup the function object
+            func_obj = self.evaluator.get_variable(func_name)
+            if func_obj is None:
+                raise NameError(f"Function '{func_name}' is not defined")
+            from types_system import Function
+            if not isinstance(func_obj, Function):
+                raise TypeError(f"'{func_name}' is not a function")
+
+            # Lazy import of plotting helper
+            try:
+                from plotter import plot_function
+            except Exception as e:
+                raise RuntimeError(f"Plotting helper unavailable: {e}")
+
+            return plot_function(self.evaluator, func_obj, start, end, points)
         
         # Tokenize
         try:
@@ -75,8 +129,21 @@ class Interpreter:
             right_ast = ast[2]
             # If right_ast is None, it's an evaluation request like 'expr = ?'
             if right_ast is None:
-                val = self.evaluator.evaluate(left_ast)
-                return self.format_result(val)
+                # Try to inline user-defined function calls symbolically so expressions
+                # like funA(funB(x)) = ? produce a composed expression rather than
+                # attempting to numerically evaluate the free variable 'x'.
+                try:
+                    inlined = self.inline_function_calls(left_ast)
+                    # If the inlined AST still contains variables, render it structurally
+                    if self.ast_has_variables(inlined):
+                        return self.ast_to_string(inlined)
+                    # Otherwise evaluate normally
+                    val = self.evaluator.evaluate(inlined)
+                    return self.format_result(val)
+                except Exception:
+                    # Fallback to numeric evaluation (will raise if variables are missing)
+                    val = self.evaluator.evaluate(left_ast)
+                    return self.format_result(val)
             return self.solver.solve(left_ast, right_ast)
         
         else:
@@ -94,7 +161,8 @@ class Interpreter:
             # Show function body (using argument name in representation)
             return self.ast_to_string(value.body_ast)
         elif isinstance(value, (int, float)):
-            return str(Rational(value))
+            # Print native floats/ints directly (builtins often return floats)
+            return str(value)
         else:
             return str(value)
 
@@ -349,3 +417,101 @@ class Interpreter:
             value_str = self.format_result(value)
             result.append(f"{name} = {value_str}")
         return "\n".join(result)
+
+    def inline_function_calls(self, ast_node):
+        """Return a new AST where user-defined Function calls are inlined by
+        substituting the function body with the actual argument AST.
+
+        Only inlines calls where the callee is a `Function` stored in the evaluator.
+        """
+        from copy import deepcopy
+        if ast_node is None:
+            return None
+
+        node_type = ast_node[0]
+
+        if node_type == 'call':
+            func_name = ast_node[1]
+            arg_ast = ast_node[2]
+            # Try to get a user-defined Function
+            func_obj = self.evaluator.get_variable(func_name)
+            from types_system import Function
+            if isinstance(func_obj, Function):
+                # Substitute argument occurrences in the function body with the provided arg_ast
+                body_copy = deepcopy(func_obj.body_ast)
+                substituted = self._substitute_arg(body_copy, func_obj.arg_name, deepcopy(arg_ast))
+                # After substituting, recursively inline inside the substituted body
+                return self.inline_function_calls(substituted)
+            else:
+                # Not a user function: keep call but recurse into its argument
+                return ('call', func_name, self.inline_function_calls(arg_ast))
+
+        if node_type == 'binop':
+            return ('binop', ast_node[1], self.inline_function_calls(ast_node[2]), self.inline_function_calls(ast_node[3]))
+
+        if node_type == 'unary':
+            return ('unary', ast_node[1], self.inline_function_calls(ast_node[2]))
+
+        if node_type == 'matrix':
+            new_rows = []
+            for row in ast_node[1]:
+                new_rows.append([self.inline_function_calls(elem) for elem in row])
+            return ('matrix', new_rows)
+
+        # numbers, variables, imaginary -> return deep copy
+        from copy import deepcopy as _dc
+        return _dc(ast_node)
+
+    def _substitute_arg(self, ast_node, arg_name, replacement_ast):
+        """Recursively replace variable nodes named arg_name with replacement_ast.
+
+        Returns a new AST (does not modify inputs).
+        """
+        from copy import deepcopy
+        if ast_node is None:
+            return None
+        node_type = ast_node[0]
+        if node_type == 'variable':
+            if ast_node[1] == arg_name:
+                return deepcopy(replacement_ast)
+            return ('variable', ast_node[1])
+        if node_type == 'number':
+            return ('number', ast_node[1])
+        if node_type == 'imaginary':
+            return ('imaginary',)
+        if node_type == 'unary':
+            return ('unary', ast_node[1], self._substitute_arg(ast_node[2], arg_name, replacement_ast))
+        if node_type == 'binop':
+            return ('binop', ast_node[1], self._substitute_arg(ast_node[2], arg_name, replacement_ast), self._substitute_arg(ast_node[3], arg_name, replacement_ast))
+        if node_type == 'call':
+            return ('call', ast_node[1], self._substitute_arg(ast_node[2], arg_name, replacement_ast))
+        if node_type == 'matrix':
+            new_rows = []
+            for row in ast_node[1]:
+                new_rows.append([self._substitute_arg(elem, arg_name, replacement_ast) for elem in row])
+            return ('matrix', new_rows)
+        # fallback: deepcopy
+        return deepcopy(ast_node)
+
+    def ast_has_variables(self, ast_node):
+        """Return True if AST contains any variable nodes."""
+        if ast_node is None:
+            return False
+        node_type = ast_node[0]
+        if node_type == 'variable':
+            return True
+        if node_type in ('number', 'imaginary'):
+            return False
+        if node_type == 'matrix':
+            for row in ast_node[1]:
+                for elem in row:
+                    if self.ast_has_variables(elem):
+                        return True
+            return False
+        if node_type == 'unary':
+            return self.ast_has_variables(ast_node[2])
+        if node_type == 'binop':
+            return self.ast_has_variables(ast_node[2]) or self.ast_has_variables(ast_node[3])
+        if node_type == 'call':
+            return self.ast_has_variables(ast_node[2])
+        return False

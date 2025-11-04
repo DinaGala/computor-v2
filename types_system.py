@@ -292,6 +292,70 @@ class Matrix:
                 row.append(sum_val)
             result.append(row)
         return Matrix(result)
+
+    def is_vector(self):
+        """Return True if this Matrix is a 1-D vector (either 1xN or Nx1)."""
+        return self.rows == 1 or self.cols == 1
+
+    def inverse(self):
+        """Return the inverse of the matrix using Gauss-Jordan elimination.
+
+        Works with exact Rational arithmetic and returns a new Matrix.
+        Raises ValueError if the matrix is not square or not invertible.
+        """
+        from copy import deepcopy
+        # only square matrices are invertible
+        if self.rows != self.cols:
+            raise ValueError("Matrix inverse requires a square matrix")
+
+        n = self.rows
+        # build augmented matrix [A | I]
+        aug = [ [None] * (n * 2) for _ in range(n) ]
+        for i in range(n):
+            for j in range(n):
+                aug[i][j] = deepcopy(self.data[i][j])
+            for j in range(n):
+                aug[i][n + j] = Rational(1) if i == j else Rational(0)
+
+        # Gauss-Jordan elimination
+        for col in range(n):
+            # find pivot (non-zero) at or below row=col
+            pivot_row = None
+            for r in range(col, n):
+                if aug[r][col].value != 0:
+                    pivot_row = r
+                    break
+            if pivot_row is None:
+                raise ValueError("Matrix is singular and non-invertible")
+
+            # swap to current row if needed
+            if pivot_row != col:
+                aug[col], aug[pivot_row] = aug[pivot_row], aug[col]
+
+            # normalize pivot row so pivot becomes 1
+            pivot = aug[col][col]
+            # divide entire row by pivot
+            for j in range(2 * n):
+                aug[col][j] = aug[col][j] / pivot
+
+            # eliminate other rows
+            for r in range(n):
+                if r == col:
+                    continue
+                factor = aug[r][col]
+                if factor.value == 0:
+                    continue
+                for j in range(2 * n):
+                    aug[r][j] = aug[r][j] - factor * aug[col][j]
+
+        # extract right half as inverse
+        inv_data = []
+        for i in range(n):
+            row = []
+            for j in range(n):
+                row.append(aug[i][n + j])
+            inv_data.append(row)
+        return Matrix(inv_data)
     
     def __str__(self):
         # Render each row on its own line for readability, without outer brackets

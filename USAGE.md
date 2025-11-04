@@ -158,6 +158,12 @@ python3 computor.py "2 + 3*i"
 - `vars` - List all defined variables
 - `exit` or `quit` - Exit the interpreter (interactive mode only)
 
+- `display` / `show` - Aliases for `vars` to list defined variables and their values
+
+- `history` - Show a numbered list of recently executed commands
+- `history results` - Show commands together with execution result and timestamp
+- `history clear` - Clear the saved command-result history
+
 ## Operations Supported
 
 ### Arithmetic Operations
@@ -228,6 +234,88 @@ Discriminant is strictly positive, the two solutions are:
 5 + i
 ```
 
+## Built-in functions
+
+Computor v2 includes a set of common mathematical functions you can use directly in expressions. These accept numeric arguments (rational or complex) and return a numeric result when possible.
+
+Common built-ins
+
+- sin(x) — sine of x (x in radians)
+- cos(x) — cosine of x (x in radians)
+- tan(x) — tangent of x (x in radians)
+- exp(x) — exponential e^x
+- log(x) — natural logarithm (ln); behavior for non-positive real x follows complex rules
+- sqrt(x) — principal square root; sqrt of a negative real returns a complex result
+- abs(x) — absolute value (magnitude for complex numbers)
+- floor(x), ceil(x) — integer floor/ceiling (when available)
+
+- norm(X) — norm of a scalar/vector/matrix:
+	- scalar: magnitude (same as `abs`)
+	- vector (1×n or n×1 matrix): Euclidean (L2) norm
+	- matrix (n×m): Frobenius norm (sqrt of sum of squared absolute values of all elements)
+
+Usage examples:
+
+```
+> x = 3 + 4*i
+> abs(x)
+5
+> M = [[1,2],[3,4]]
+> norm(M)
+5.477225575051661
+```
+
+Angle mode
+
+Trig functions interpret their arguments according to the interpreter's current angle mode. By default the interpreter uses radians. You can view or change the mode with the `angles` command in the REPL:
+
+```
+> angles
+angle mode: radians
+> angles deg
+angle mode set to degrees
+> sin(90)
+1.0
+> angles rad
+angle mode set to radians
+> sin(1.57079632679)
+1.0
+```
+
+Use `angles` with no argument to display the current mode. Use `angles deg` or `angles rad` to switch between degrees and radians.
+- exp(x) — exponential e^x
+- log(x) — natural logarithm (ln); behavior for non-positive real x follows complex rules
+- sqrt(x) — principal square root; sqrt of a negative real returns a complex result
+- abs(x) — absolute value (magnitude for complex numbers)
+- floor(x), ceil(x) — integer floor/ceiling (when available)
+
+Usage examples
+
+```
+> sin(1)
+0.8414709848078965
+
+> sqrt(4)
+2
+
+> sqrt(-1)
+i
+
+> exp(1)
+2.718281828459045
+
+> abs(-3/2)
+3/2
+```
+
+Notes and behavior
+
+- Arguments may be Rational or Complex; many of the transcendental functions return decimal approximations when necessary (e.g., sin, exp) because exact rational results are not generally available.
+- `sqrt` of a negative real returns a `Complex` value (the interpreter prints `i` for the imaginary unit).
+- `log` of a non-positive real will produce a complex result using the principal branch (if applicable).
+- Use `abs` for magnitudes: `abs(2 + 3*i)` → `sqrt(13)` or its decimal/approximate representation depending on evaluation rules.
+- If you need exact rational outputs, prefer arithmetic and power operations that preserve rationals; built-in transcendental functions typically produce floating-point results.
+
 ## Error Handling
 
 The interpreter provides helpful error messages:
@@ -242,3 +330,71 @@ Error: All rows must have the same length
 > 5 / 0
 Error: Division by zero
 ```
+
+## Plotting functions
+
+The interpreter provides a small `plot` command to visualize single-argument functions you define in the REPL.
+
+Syntax
+
+```
+plot <function_name> <start> <end> [points]
+```
+
+- `function_name` — name of a previously defined single-argument function, e.g. `f` when you defined `f(x) = x^2 - 1`.
+- `start`, `end` — numeric (floating) bounds of the plotting interval. `start` and `end` must differ.
+- `points` — optional integer number of sampling points (default: 200). Must be >= 2.
+
+Examples
+
+```
+> f(x) = x^2 - 1
+> plot f -2 2
+Plot saved to /tmp/computor_plot_xxxx.png
+
+> g(t) = sin(t)  # if you have a sin implementation in your functions
+> plot g 0 6.28 400
+```
+
+Behavior and notes
+
+- The `plot` command only accepts named, single-argument `Function` objects (the project's `Function` type).
+- The plotter samples the function at `points` evenly spaced values between `start` and `end` and evaluates the function AST at each sample.
+- Only scalar real values are plottable: points that evaluate to complex numbers with non-zero imaginary part or matrices are skipped.
+- If `matplotlib` is installed, the plotter uses it in headless mode (Agg) and writes a PNG image to a temporary file; the command returns the path to the PNG.
+- If `matplotlib` is not available, the plotter falls back to a compact ASCII-art plot (60×20 grid) printed in the REPL.
+- If no numeric points are plottable (all samples fail or are non-scalar), the command will report that no plottable points were produced.
+
+Tips
+
+- Install matplotlib to get image output (recommended):
+
+```bash
+pip install matplotlib
+```
+
+- Use a moderate number of `points` (200–1000) depending on performance and desired smoothness.
+- If your function is expensive to evaluate, reduce the number of `points`.
+
+## Matrix inverse
+
+You can compute the inverse of a square matrix using `inv(M)` or the `^` operator with exponent `-1`.
+
+Examples:
+
+```
+> A = [[1, 2], [3, 4]]
+> inv(A)
+[-2 , 1 ]
+[ 1.5 , -0.5 ]
+
+> A^-1
+[-2 , 1 ]
+[ 1.5 , -0.5 ]
+```
+
+Notes:
+
+- Only square matrices have inverses. Attempting to invert a non-square matrix raises an error.
+- Inversion is computed exactly using rational arithmetic where possible; if the matrix is singular, a ValueError is raised.
+- `A^-1` is syntactic sugar for `A ^ -1` and uses the same logic (negative integer exponents require invertible square matrices).

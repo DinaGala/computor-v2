@@ -247,6 +247,107 @@ def test_matrix_semicolon_and_single_row():
     print("✓ Matrix semicolon and single-row formatting passed")
 
 
+def _to_float_from_output(s: str):
+    """Convert interpreter numeric output (int, float or fraction string) to float."""
+    from fractions import Fraction
+    s = s.strip()
+    if s.endswith('i'):
+        raise ValueError("Cannot convert complex string to float")
+    if '/' in s:
+        return float(Fraction(s))
+    return float(s)
+
+
+def test_builtins_and_angle_mode():
+    """Test builtin math functions and angle mode switching."""
+    import math
+    print("Testing builtins and angle mode...")
+    interp = Interpreter()
+
+    # sqrt of positive and negative
+    assert interp.execute("sqrt(4)") == "2"
+    assert interp.execute("sqrt(-1)") == "i"
+
+    # exp(1) approx e
+    e_out = interp.execute("exp(1)")
+    assert abs(_to_float_from_output(e_out) - math.e) < 1e-12
+
+    # sin in radians by default
+    s_out = interp.execute("sin(1)")
+    assert abs(_to_float_from_output(s_out) - math.sin(1)) < 1e-12
+
+    # angle mode degrees
+    assert interp.execute("angles deg") == "angle mode set to degrees"
+    sin90 = interp.execute("sin(90)")
+    assert abs(_to_float_from_output(sin90) - 1.0) < 1e-12
+    assert interp.execute("angles rad") == "angle mode set to radians"
+
+    # floor/ceil
+    assert interp.execute("floor(3.7)") in ("3",)
+    assert interp.execute("ceil(3.2)") in ("4",)
+
+    print("✓ Builtins and angle mode passed")
+
+
+def test_norm_and_inverse():
+    """Test norm() and matrix inversion / negative powers."""
+    print("Testing norm and inverse...")
+    interp = Interpreter()
+
+    # norm of complex scalar
+    interp.execute("x = 3 + 4*i")
+    assert interp.execute("norm(x)") in ("5",)
+
+    # Matrix inverse and product yields identity
+    interp.execute("A = [[1, 2], [3, 4]]")
+    invA = interp.execute("inv(A)")
+    # inv(A) should be a two-line matrix
+    assert "-2" in invA and "-0.5" in invA or "1.5" in invA
+
+    prod = interp.execute("A ** inv(A)")
+    # Expect identity matrix
+    expected_identity = "[ 1 , 0 ]\n[ 0 , 1 ]"
+    assert prod == expected_identity
+
+    # Negative powers
+    inv_via_pow = interp.execute("A ^ -1")
+    assert inv_via_pow == invA
+
+    # A^-2 equals inv(A) ** inv(A)
+    a_minus_2 = interp.execute("A ^ -2")
+    a_inv_sq = interp.execute("inv(A) ** inv(A)")
+    assert a_minus_2 == a_inv_sq
+
+    print("✓ Norm and inverse passed")
+
+
+def test_matrix_vector_operations():
+    """Test convenience matrix-vector multiplication semantics."""
+    print("Testing matrix-vector operations...")
+    interp = Interpreter()
+
+    interp.execute("A = [[1, 2], [3, 4]]")
+    interp.execute("vcol = [[5], [6]]")
+    interp.execute("vrow = [[5, 6]]")
+
+    # A * vcol -> column vector [[17],[39]]
+    res_col = interp.execute("A * vcol")
+    expected_col = "[ 17 ]\n[ 39 ]"
+    assert res_col == expected_col, f"Expected {expected_col}, got {res_col}"
+
+    # vrow * A -> row vector [23, 34]
+    res_row = interp.execute("vrow * A")
+    expected_row = "[ 23 , 34 ]"
+    assert res_row == expected_row, f"Expected {expected_row}, got {res_row}"
+
+    # inner product vrow * vcol -> 1x1 matrix [ 61 ]
+    res_inner = interp.execute("vrow * vcol")
+    expected_inner = "[ 61 ]"
+    assert res_inner == expected_inner, f"Expected {expected_inner}, got {res_inner}"
+
+    print("✓ Matrix-vector operations passed")
+
+
 def main():
     """Run all tests."""
     print("Running computor v2 tests...\n")

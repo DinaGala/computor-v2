@@ -3,3 +3,7 @@
 # No external dependencies required
 
 # Minimum Python version: 3.6+
+
+# Optional plotting support. If you want to use the `plot` command, install:
+# matplotlib
+matplotlib
