@@ -1,6 +1,6 @@
 # Computor v2 - Usage Guide
 
-A command interpreter in Python that supports rational numbers, complex numbers, matrices, and polynomial equation solving.
+A command-line mathematical REPL written in Python. It supports exact rational arithmetic, complex numbers (with the literal `i`), matrices, single-argument functions, a small equation solver, plotting, and a set of useful built-in functions.
 
 ## Installation
 
@@ -12,8 +12,8 @@ python3 computor.py
 
 ## Features
 
-### 1. Rational Numbers
-The interpreter uses exact rational arithmetic (fractions) for precise calculations.
+### 1. Rational numbers
+The interpreter uses exact rational arithmetic (Python's Fraction) for arithmetic where possible. Results that cannot be represented exactly (transcendental functions) are returned as numeric approximations.
 
 ```
 > 7 / 2
@@ -24,8 +24,8 @@ The interpreter uses exact rational arithmetic (fractions) for precise calculati
 1/2
 ```
 
-### 2. Complex Numbers
-Complex numbers with rational coefficients. Use `i` for the imaginary unit.
+### 2. Complex numbers
+Complex numbers have rational real/imaginary parts. Use the identifier `i` for the imaginary unit (this name is reserved and cannot be assigned to a variable).
 
 ```
 > 2 + 3*i
@@ -37,18 +37,38 @@ Complex numbers with rational coefficients. Use `i` for the imaginary unit.
 ```
 
 ### 3. Matrices
-Matrices with rational elements. Supports addition, subtraction, multiplication, and scalar operations.
+Matrices are rectangular arrays of rational numbers. The interpreter accepts matrix literals like `[[1,2],[3,4]]` or the semicolon row separator `[[1,2];[3,4]]`.
+
+Printing: matrices are rendered with each row on its own line (no outer brackets) for readability. Example:
 
 ```
 > [[1, 2], [3, 4]]
-[ [ 1 , 2 ] ; [ 3 , 4 ] ]
+[ 1 , 2 ]
+[ 3 , 4 ]
 > M = [[1, 2], [3, 4]]
 > M * 2
-[ [ 2 , 4 ] ; [ 6 , 8 ] ]
-> A = [[1, 0], [0, 1]]
-> B = [[2, 3], [4, 5]]
+[ 2 , 4 ]
+[ 6 , 8 ]
+```
+
+Supported operations:
+- Addition/Subtraction: element-wise (same dimensions required)
+- Element-wise multiplication: `*` when both matrices have identical dimensions
+- Matrix multiplication (dot product): `**` (explicit) or `*` as a convenience when one operand is a vector-shaped matrix and shapes are compatible
+- Scalar multiplication: scalar * matrix or matrix * scalar
+- Power: `^` for integer exponents (square matrices only). Negative integer exponents use the matrix inverse.
+
+Examples:
+
+```
+> A = [[1, 2], [3, 4]]
+> B = [[5, 6], [7, 8]]
 > A + B
-[ [ 3 , 3 ] ; [ 4 , 6 ] ]
+[ 6 , 8 ]
+[ 10 , 12 ]
+> A ** B    # explicit matrix multiplication
+[ 19 , 22 ]
+[ 43 , 50 ]
 ```
 
 ### 4. Variable Assignment
@@ -164,6 +184,12 @@ python3 computor.py "2 + 3*i"
 - `history results` - Show commands together with execution result and timestamp
 - `history clear` - Clear the saved command-result history
 
+Notes about persistent history
+
+- Readline-based command history (interactive up-arrow navigation) is saved to `~/.computor_history` by default when Python's `readline` is available. You can override the path with the environment variable `COMPUTOR_HISTORY`.
+- A command → result JSONL history is stored by default at `~/.computor_history_results`. You can override it with `COMPUTOR_HISTORY_RESULTS`.
+- Each JSONL entry contains: { time: ISO8601, cmd: string, result: string } and is appended as commands run.
+
 ## Operations Supported
 
 ### Arithmetic Operations
@@ -172,6 +198,12 @@ python3 computor.py "2 + 3*i"
 - Multiplication: `*`
 - Division: `/`
 - Power: `^` or `**`
+
+Additional operators
+
+- Element-wise matrix multiplication: `*` when both matrices share identical shape
+- Matrix multiplication (dot product): `**` (preferred explicit operator)
+- Modulo: `%` (for rational / integer operands)
 
 ### Supported Type Combinations
 - Rational + Rational = Rational
@@ -209,9 +241,11 @@ python3 computor.py "2 + 3*i"
 > A = [[1, 2], [3, 4]]
 > B = [[5, 6], [7, 8]]
 > A + B
-[ [ 6 , 8 ] ; [ 10 , 12 ] ]
-> A * B
-[ [ 19 , 22 ] ; [ 43 , 50 ] ]
+[ 6 , 8 ]
+[ 10 , 12 ]
+> A ** B   # matrix multiplication
+[ 19 , 22 ]
+[ 43 , 50 ]
 ```
 
 ### Example 4: Solving Equations
@@ -398,3 +432,11 @@ Notes:
 - Only square matrices have inverses. Attempting to invert a non-square matrix raises an error.
 - Inversion is computed exactly using rational arithmetic where possible; if the matrix is singular, a ValueError is raised.
 - `A^-1` is syntactic sugar for `A ^ -1` and uses the same logic (negative integer exponents require invertible square matrices).
+Note about matrix/vector semantics
+
+- The interpreter treats 1×N and N×1 matrices as vector-shaped. For convenience:
+	- `A * v` or `v * A` will perform matrix multiplication when the shapes are compatible and one operand is vector-shaped. This is a convenience rule — use `**` for unambiguous matrix multiplication when both operands are matrices.
+	- When two matrices have identical dimensions, `*` performs element-wise multiplication (not matmul).
+	- Inner products (1×N * N×1) currently produce a 1×1 matrix (printed as a single-row matrix `[ value ]`), not a bare scalar.
+
+These rules aim to make common matrix/vector workflows concise while keeping `**` available for explicit matrix multiplication.
